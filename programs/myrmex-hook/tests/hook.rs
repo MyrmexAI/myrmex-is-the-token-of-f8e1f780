@@ -325,3 +325,38 @@ fn counter_saturates() {
     env.transfer(1).unwrap();
     assert_eq!(env.count(), u64::MAX);
 }
+
+#[test]
+fn transfer_with_wrong_stats_account_fails_and_moves_nothing() {
+    let mut env = setup();
+    env.init().unwrap();
+    let mut ix = env.transfer_ix(&env.alice_ta, &env.bob_ta, &env.alice.pubkey(), 5);
+    // Token-2022 re-derives the stats PDA from the validation list, so a swapped account is rejected.
+    let n = ix.accounts.len();
+    ix.accounts[n - 3] = AccountMeta::new(env.bob_ta, false);
+    let alice = env.alice.insecure_clone();
+    assert!(env.send(&[ix], &[&alice]).is_err());
+    assert_eq!(env.count(), 0);
+    assert_eq!(env.balance(&env.bob_ta), 0);
+}
+
+#[test]
+fn direct_execute_before_init_fails() {
+    let mut env = setup();
+    let mut data = disc("spl-transfer-hook-interface:execute").to_vec();
+    data.extend_from_slice(&1u64.to_le_bytes());
+    let ix = Instruction {
+        program_id: program_id(),
+        accounts: vec![
+            AccountMeta::new_readonly(env.alice_ta, false),
+            AccountMeta::new_readonly(env.mint, false),
+            AccountMeta::new_readonly(env.bob_ta, false),
+            AccountMeta::new_readonly(env.alice.pubkey(), true),
+            AccountMeta::new_readonly(env.metas, false),
+            AccountMeta::new(env.stats, false),
+        ],
+        data,
+    };
+    let alice = env.alice.insecure_clone();
+    assert!(env.send(&[ix], &[&alice]).is_err());
+}
